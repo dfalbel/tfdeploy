@@ -1,7 +1,11 @@
 #' @import jsonlite
 
-swagger_from_signature_def <- function(
-  signature_def) {
+swagger_from_signature_def <- function(signature_def) {
+
+  swagger_header()
+  swagger_paths(signature_def)
+  swagger_defs(signature_def)
+
   def <- c(
     swagger_header(),
     swagger_paths(signature_def),
@@ -64,15 +68,19 @@ swagger_paths <- function(signature_def) {
   })
   names(path_values) <- path_names
 
-  serving_default <- tf$saved_model$signature_constants$DEFAULT_SERVING_SIGNATURE_DEF_KEY
+  if (reticulate::py_has_attr(tf$saved_model, "signature_constants")) {
+    serving_default <- tf$saved_model$signature_constants$DEFAULT_SERVING_SIGNATURE_DEF_KEY
+  } else {
+    serving_default <- tf$saved_model$DEFAULT_SERVING_SIGNATURE_DEF_KEY
+  }
+
   if (!serving_default %in% path_names) {
     warning(
       "Signature '",
       serving_default,
       "' is missing but is required for some services like CloudML."
     )
-  }
-  else {
+  } else {
     # make serving default first entry in swagger-ui
     path_names <- path_names[path_names != serving_default]
     serving_default_value <- path_values[[serving_default]]
@@ -97,6 +105,9 @@ swagger_dtype_to_swagger <- function(dtype) {
   # DTypes: https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/framework/dtypes.py
   # Swagger: https://swagger.io/docs/specification/data-models/data-types/
 
+  if (is.character(dtype))
+    dtype <- tf$DType(dtype)
+
   regex_mapping <- list(
     "int32"     = list(type = "integer", format = "int32"),
     "int64"     = list(type = "integer", format = "int64"),
@@ -104,7 +115,8 @@ swagger_dtype_to_swagger <- function(dtype) {
     "float"     = list(type = "number",  format = "float"),
     "complex"   = list(type = "number",  format = ""),
     "string"    = list(type = "string",  format = ""),
-    "bool"      = list(type = "boolean", format = "")
+    "bool"      = list(type = "boolean", format = ""),
+    "resource"  = list(type = "number",  format = "float")
   )
 
   regex_name <- Filter(function(r) grepl(r, dtype$name), names(regex_mapping))
@@ -126,10 +138,23 @@ swagger_type_to_example <- function(type) {
   )
 }
 
-swagger_input_tensor_def <- function(signature_entry, tensor_input_name) {
-  tensor_input <- signature_entry$inputs$get(tensor_input_name)
+get_tensor_shape <- function(tensor_input) {
+  if (reticulate::py_has_attr(tensor_input, "tensor_shape"))
+    tensor_input$tensor_shape
+  else
+    tensor_input$shape$as_proto()
+}
 
-  tensor_input_dim <- tensor_input$tensor_shape$dim
+swagger_input_tensor_def <- function(signature_entry, tensor_input_name) {
+
+  if (inherits(signature_entry$inputs, "dict")) {
+    tensor_input <- signature_entry$inputs$get(tensor_input_name)
+  } else {
+    id <- which(get_tensor_input_names(signature_entry$inputs) == tensor_input_name)
+    tensor_input <- signature_entry$graph$inputs[[id]]
+  }
+
+  tensor_input_dim <- get_tensor_shape(tensor_input)$dim
   tensor_input_dim_len <- tensor_input_dim$`__len__`()
 
   is_multi_instance_tensor <- tensor_is_multi_instance(tensor_input)
@@ -143,9 +168,9 @@ swagger_input_tensor_def <- function(signature_entry, tensor_input_name) {
 
   tensor_input_example_length <- 1
   if (tensor_input_dim_len > 0)
-    tensor_input_example_length <- tensor_input$tensor_shape$dim[[tensor_input_dim_len - 1]]$size
+    tensor_input_example_length <- get_tensor_shape(tensor_input)$dim[[tensor_input_dim_len - 1]]$size
 
-  swagger_items <- swagger_dtype_to_swagger(tf$DType(tensor_input$dtype))
+  swagger_items <- swagger_dtype_to_swagger(tensor_input$dtype)
   swagger_example <- swagger_type_to_example(swagger_items$type)
 
   swagger_type_def <- list(
@@ -172,8 +197,12 @@ swagger_input_tensor_def <- function(signature_entry, tensor_input_name) {
   swagger_type_def
 }
 
+get_tensor_input_names <- function(inputs) {
+  lapply(inputs, function(x) x$name)
+}
+
 swagger_def <- function(signature_entry, signature_id) {
-  tensor_input_names <- py_dict_get_keys(signature_entry$inputs)
+  tensor_input_names <- get_tensor_input_names(signature_entry$inputs)
 
   swagger_input_defs <- lapply(tensor_input_names, function(tensor_input_name) {
     swagger_input_tensor_def(
@@ -205,6 +234,8 @@ swagger_def <- function(signature_entry, signature_id) {
 
 swagger_defs <- function(signature_def) {
   defs_names <- py_dict_get_keys(signature_def)
+
+
   defs_values <- lapply(seq_along(defs_names), function(defs_index) {
     swagger_def(signature_def$get(defs_names[[defs_index]]), defs_index)
   })

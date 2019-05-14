@@ -94,13 +94,19 @@ serve_empty_page <- function(req, sess, graph) {
 serve_handlers <- function(host, port) {
   handlers <- list(
     "^/swagger.json" = function(req, sess, graph) {
+
+      if (reticulate::py_has_attr(graph, "signature_def"))
+        signatures <- graph$signature_def
+      else
+        signatures <- graph$signatures
+
       list(
         status = 200L,
         headers = list(
           "Content-Type" = paste0(serve_content_type("json"), "; charset=UTF-8")
         ),
         body = charToRaw(enc2utf8(
-          swagger_from_signature_def(graph$signature_def)
+          swagger_from_signature_def(signatures)
         ))
       )
     },
@@ -174,7 +180,8 @@ message_serve_start <- function(host, port, graph) {
   message()
   message("Starting server under ", hostname, " with the following API entry points:")
 
-  for (signature_name in py_dict_get_keys(graph$signature_def)) {
+
+  for (signature_name in py_dict_get_keys(graph_signatures(graph))) {
     message("  ", hostname, "/", signature_name, "/predict/")
   }
 }

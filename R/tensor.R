@@ -3,8 +3,8 @@
 # instead of just (784). This is to optimize prediction performance, but
 # since we feed one at a time, this function is used to ignore instances.
 tensor_is_multi_instance <- function(tensor) {
-  tensor$tensor_shape$dim$`__len__`() > 0 &&
-    tensor$tensor_shape$dim[[0]]$size == -1
+  get_tensor_shape(tensor)$dim$`__len__`() > 0 &&
+    get_tensor_shape(tensor)$dim[[0]]$size == -1
 }
 
 # Retrieves the input and output tensors from a graph as a named list.

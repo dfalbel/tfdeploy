@@ -1,7 +1,11 @@
 #' @import tensorflow
 with_new_session <- function(f) {
-  sess <- tf$Session()
-  on.exit(sess$close(), add = TRUE)
+  if (tensorflow::tf_version() < "2.0") {
+    sess <- tf$Session()
+    on.exit(sess$close(), add = TRUE)
+  } else {
+    sess <- NULL
+  }
 
   f(sess)
 }
@@ -22,4 +26,11 @@ py_dict_get_keys <- function(x) {
   }
 
   keys
+}
+
+graph_signatures <- function(graph) {
+  if (reticulate::py_has_attr(graph, "signature_def"))
+    graph$signature_def
+  else
+    graph$signatures
 }
