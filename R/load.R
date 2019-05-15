@@ -69,20 +69,20 @@ load_savedmodel <- function(
     model_dir <- extracted_dir
   }
 
-  if (tensorflow::tf_version() >= "2.0" && tf$executing_eagerly()) {
-    graph <- tensorflow::tf$saved_model$load(
-      export_dir = model_dir,
-      tags = list(tf$python$saved_model$tag_constants$SERVING)
-    )
-  } else {
-    tf$reset_default_graph()
 
-    graph <- tf$saved_model$loader$load(
-      sess,
-      list(tf$python$saved_model$tag_constants$SERVING),
-      model_dir
-    )
+  if (tensorflow::tf_version() >= "2.0" && tf$executing_eagerly()) {
+    loader <- tf$compat$v1$saved_model$loader
+  } else {
+    loader <-  tf$saved_model$loader
+    tf$reset_default_graph()
   }
+
+
+  graph <- loader$load(
+    sess,
+    list(tf$python$saved_model$tag_constants$SERVING),
+    model_dir
+  )
 
   graph
 }
